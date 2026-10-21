@@ -1,4 +1,52 @@
+# Python
 venv/
+.venv/
+env/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Secrets et configuration locale
 .env
+.env.*
+!.env.example
+
+# Certificats et clés (mTLS des bornes, TLS du serveur)
+*.pem
+*.key
+*.crt
+*.p12
+
+# Données du projet
+data/
+corpus/
+*.dump
+*.sql
+*.sqlite3
+
+# Modèles IA (poids volumineux)
+models/
+*.gguf
+*.safetensors
+*.bin
+
+# Logs
+*.log
+logs/
+
+# Docker (données persistantes locales)
+volumes/
+
+# Frontend (si Node/Angular/React)
+node_modules/
+dist/
+.angular/
+
+# Éditeurs
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
