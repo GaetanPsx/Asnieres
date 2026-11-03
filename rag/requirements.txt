@@ -3,3 +3,4 @@ trafilatura
 sentence-transformers
 psycopg[binary]
 pgvector
+ollama
