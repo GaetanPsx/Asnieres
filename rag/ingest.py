@@ -1,17 +1,19 @@
 """
 Étape 2 du RAG : découpage des documents en chunks.
 
-Entrée  : data/raw/*.json      (un fichier par document, produit par scrape.py)
+Entrée  : data/raw/*.json           (un fichier par document, produit par scrape.py)
 Sortie  : data/chunks/chunks.json   (la liste de tous les chunks, avec leurs métadonnées)
 
 Stratégie :
   1. On découpe par SECTION, grâce aux titres Markdown (#, ##, ###...).
      Chaque lieu / sujet devient un chunk -> chaque chunk parle d'une seule chose.
      Les sous-titres génériques ("Horaires d'ouverture"...) restent dans le chunk de leur lieu.
-  2. On ajoute en tête de chaque chunk le "fil d'Ariane" (Page > Section),
+  2. On "rédige" les listes à puces : elles deviennent des phrases
+     ("Les démarches sur rendez-vous : attestation d'accueil, passeport.").
+     Le reranker (et plus tard le LLM) comprend beaucoup mieux une phrase qu'un mot isolé dans une liste.
+  3. On ajoute en tête de chaque chunk le "fil d'Ariane" (Page > Section),
      pour qu'il reste compréhensible tout seul.
-  3. Si une section est trop longue, on la recoupe par paragraphes.
-  4. Si un document n'a aucun titre, on le coupe par paragraphes (taille fixe + chevauchement).
+  4. Si une section est trop longue, on la recoupe par paragraphes.
 
 Lancer depuis le dossier rag/ :  python ingest.py
 """
@@ -34,6 +36,7 @@ SOUS_TITRES_GENERIQUES = {
 }
 
 TITRE_MD = re.compile(r"^(#{1,6})\s+(.*)$")
+PUCE = re.compile(r"^(\s*)[-*]\s+(.*)$")
 
 
 def normaliser(t: str) -> str:
@@ -93,6 +96,80 @@ def decouper_en_sections(texte: str) -> list[dict]:
     return sections
 
 
+def rediger(corps: str) -> str:
+    """
+    Transforme les listes à puces en phrases, et colle les sous-titres génériques à leur contenu.
+
+      Les démarches :                     Les démarches sur rendez-vous : Attestation d'accueil,
+      - sur rendez-vous :          ->       Carte nationale d'identité, Passeport.
+        - Attestation d'accueil           Les démarches sans rendez-vous : Carte améthyste.
+        - Carte nationale d'identité
+        - Passeport                       Horaires d'ouverture : Du lundi au vendredi de 8h30 à 17h30
+      - sans rendez-vous :
+        - Carte améthyste
+
+      Horaires d'ouverture
+      Du lundi au vendredi de 8h30 à 17h30
+    """
+    lignes = corps.splitlines()
+    sortie = []
+    i = 0
+    while i < len(lignes):
+        ligne = lignes[i]
+        if not PUCE.match(ligne):
+            sortie.append(ligne)
+            i += 1
+            continue
+
+        # 1. On récupère tout le bloc de liste (les lignes vides entre deux puces en font partie)
+        items = []   # [(texte de l'item, [sous-items])]
+        while i < len(lignes):
+            m = PUCE.match(lignes[i])
+            if m:
+                texte = m.group(2).strip()
+                if len(m.group(1)) == 0 or not items:
+                    items.append((texte, []))
+                else:
+                    items[-1][1].append(texte)
+                i += 1
+            elif not lignes[i].strip() and i + 1 < len(lignes) and PUCE.match(lignes[i + 1]):
+                i += 1
+            else:
+                break
+
+        # 2. Le texte juste avant la liste se termine par ":" ? ("Les démarches :") -> on le fusionne
+        intro = None
+        while sortie and not sortie[-1].strip():
+            sortie.pop()
+        if sortie and sortie[-1].strip().endswith(":"):
+            intro = sortie.pop().strip().rstrip(" :")
+
+        # 3. On écrit les phrases
+        feuilles = [t.rstrip(" :") for t, enfants in items if not enfants]
+        if feuilles:
+            debut = f"{intro} : " if intro else ""
+            sortie.append(f"{debut}{', '.join(feuilles)}.")
+        for texte, enfants in items:
+            if enfants:
+                etiquette = texte.rstrip(" :")
+                if intro:
+                    etiquette = f"{intro} {etiquette}"
+                sortie.append(f"{etiquette} : {', '.join(enfants)}.")
+        sortie.append("")
+
+    # Sous-titre générique seul sur sa ligne + texte juste après -> "Horaires d'ouverture : Du lundi..."
+    resultat = []
+    for ligne in sortie:
+        if resultat and ligne.strip() and normaliser(resultat[-1]) in SOUS_TITRES_GENERIQUES \
+                and not resultat[-1].strip().endswith("."):
+            resultat[-1] = f"{resultat[-1].strip().rstrip(' :')} : {ligne.strip()}"
+        elif ligne.strip() or (resultat and resultat[-1].strip()):
+            if resultat and not ligne.strip() and normaliser(resultat[-1]) in SOUS_TITRES_GENERIQUES:
+                continue   # pas de ligne vide entre un sous-titre et son contenu
+            resultat.append(ligne)
+    return "\n".join(resultat).strip()
+
+
 def recouper(corps: str) -> list[str]:
     """Recoupe un texte trop long par paragraphes, en gardant un léger chevauchement."""
     paragraphes = [p.strip() for p in re.split(r"\n\s*\n", corps) if p.strip()]
@@ -125,7 +202,8 @@ def chunker_document(doc: dict) -> list[dict]:
         else:
             fil_ariane = f"{titre_page} > {titre_section}" if titre_page else titre_section
 
-        morceaux = [section["corps"]] if len(section["corps"]) <= TAILLE_MAX else recouper(section["corps"])
+        corps = rediger(section["corps"])
+        morceaux = [corps] if len(corps) <= TAILLE_MAX else recouper(corps)
         for morceau in morceaux:
             if len(morceau) < TAILLE_MIN:
                 continue
