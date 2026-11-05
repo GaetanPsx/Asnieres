@@ -9,6 +9,7 @@ C'est la fonction repondre(question) que le BACK appellera. Elle renvoie un dict
       "trouve":     true,        # false -> message "je ne suis pas en mesure de vous aider"
       "reformulee": null,        # la question reformulée, si le 1er essai de recherche a échoué
       "citations_ok": true,      # false -> le LLM n'a cité aucun extrait : réponse à surveiller
+      "fidele":     true,        # false -> des phrases inventées par le LLM ont été retirées
       "duree_s":    6.2
     }
 (format à valider avec la personne du back)
@@ -32,7 +33,8 @@ def repondre(question: str) -> dict:
 
     if not recherche["trouve"]:
         # Rien de pertinent dans les documents : on ne sollicite même pas le LLM -> aucun risque d'invention
-        resultat = {"reponse": REFUS, "sources": [], "trouve": False, "citations_ok": True}
+        resultat = {"reponse": REFUS, "sources": [], "trouve": False, "citations_ok": True,
+                    "fidele": True, "phrases_retirees": []}
     else:
         resultat = generer(question, recherche["chunks"])
 
@@ -43,6 +45,8 @@ def repondre(question: str) -> dict:
         "trouve": resultat["trouve"],
         "reformulee": recherche["reformulee"],
         "citations_ok": resultat["citations_ok"],
+        "fidele": resultat["fidele"],
+        "phrases_retirees": resultat["phrases_retirees"],   # pour le suivi, pas affiché à l'usager
         "duree_s": round(time.time() - t, 1),
     }
 
@@ -70,6 +74,8 @@ def afficher(r: dict):
         print("\nSources :")
         for s in r["sources"]:
             print(f"  [{s['numero']}] {s['section']} — {s['url']}")
+    for x in r["phrases_retirees"]:
+        print(f"\n🛑 Phrase inventée retirée ({x['raison']}) :\n   « {x['phrase']} »")
     if r["trouve"] and not r["citations_ok"]:
         print("\n⚠️  Aucune citation : réponse à vérifier")
     print(f"\n({r['duree_s']} s)")
