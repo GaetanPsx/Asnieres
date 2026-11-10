@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { Navbar } from './navbar/navbar';
 import { ChatInputComponent } from './chat-input/chat-input';
-
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-root',
@@ -60,15 +60,50 @@ import { ChatInputComponent } from './chat-input/chat-input';
 export class App {
   messages = signal<{ role: 'user' | 'assistant'; content: string }[]>([]);
 
+  constructor(private http: HttpClient) {}
+
   handlePrompt(text: string) {
+
+    // On affiche immédiatement le message de l'utilisateur
     this.messages.update((messages) => [
       ...messages,
-      { role: 'user', content: text },
       {
-        role: 'assistant',
-        content: "La réponse à votre question s'affichera ici lorsque le service de réponse sera connecté."
+        role: 'user',
+        content: text
       }
     ]);
+
+    // On envoie la question au backend FastAPI
+    this.http.post<{ answer: string; sources: unknown[] }>(
+      'http://127.0.0.1:8000/chat',
+      {
+        question: text
+      }
+    ).subscribe({
+
+      next: (response) => {
+        this.messages.update((messages) => [
+          ...messages,
+          {
+            role: 'assistant',
+            content: response.answer
+          }
+        ]);
+      },
+
+      error: (error) => {
+        console.error('Erreur backend :', error);
+
+        this.messages.update((messages) => [
+          ...messages,
+          {
+            role: 'assistant',
+            content: "Impossible de contacter le serveur."
+          }
+        ]);
+      }
+
+    });
   }
 
   returnToHome() {

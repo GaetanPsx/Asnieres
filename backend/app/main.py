@@ -1,19 +1,20 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:4200",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost:4200"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class ChatRequest(BaseModel):
+    question: str
 
 
 @app.get("/")
@@ -26,8 +27,9 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/test")
-def test():
+@app.post("/chat")
+def chat(request: ChatRequest):
     return {
-        "message": "Communication frontend/backend fonctionnelle"
+        "answer": f"Réponse temporaire du backend à : {request.question}",
+        "sources": []
     }
